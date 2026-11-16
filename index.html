@@ -110,6 +110,7 @@
 #dbg-log { margin-top: 8px; max-height: 120px; overflow-y: auto; font-size: 11px; color: #9be7c4; }
 #dbg-log div { margin: 2px 0; }
 .dbg-hint { color: #b9c2c9; font-size: 11px; margin: 6px 0 0; }
+.dbg-cheat-title label { color: #ffd200; font-weight: 700; }
 	</style>
 </head>
 <body>
@@ -313,6 +314,12 @@
 			"<button id=\"dbg-stop\">停止</button>" +
 			"<button id=\"dbg-tap\">點中央</button>" +
 			"</div>" +
+			"<div class=\"dbg-row dbg-cheat-title\"><label>作弊（占位，離線成品不支援）</label></div>" +
+			"<div class=\"dbg-row\">" +
+			"<button id=\"dbg-coin\">加金幣</button>" +
+			"<button id=\"dbg-star\">加星星</button>" +
+			"<button id=\"dbg-unlock\">全解鎖</button>" +
+			"</div>" +
 			"<div id=\"dbg-status\"></div>" +
 			"<div id=\"dbg-log\"></div>" +
 			"<p class=\"dbg-hint\">自動游玩為頁面層事件注入，模擬觸控/點擊；無法讀改金幣、星星或解鎖狀態。</p>";
@@ -342,6 +349,14 @@
 			tapAt(0.5, 0.5);
 			log("手動點擊中央");
 			refreshStatus();
+		});
+
+		// 占位作弊按鈕：編譯後 Unity WebGL 未暴露內部狀態 API，無法讀改金幣/星星/解鎖
+		var cheatMsg = "離線編譯成品不支援：金幣、星星與解鎖狀態封裝在 Unity 內部，頁面層無法寫入。";
+		[["dbg-coin", "加金幣"], ["dbg-star", "加星星"], ["dbg-unlock", "全解鎖"]].forEach(function (pair) {
+			$(pair[0]).addEventListener("click", function () {
+				log(pair[1] + "：" + cheatMsg);
+			});
 		});
 
 		// 輪詢 Unity 實例就緒狀態，更新面板
