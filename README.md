@@ -51,7 +51,9 @@ my-perfect-hotel/
 ## 離線改動說明
 
 - **PokiSDK 本地樁**：`index.html` 內以 stub 取代官方 SDK，廣告插播直接回調、獎勵廣告直接發放成功、登入／使用者／分析／錯誤回報皆為空實作，不再請求 Poki 後端。
-- **縮圖全部本地**：載入畫面預設縮圖與後備路徑皆指向 `screenshots/1-small.jpg`，不再引用 `img.poki-cdn.com`。
+- **縮圖全部本地**：載入畫面預設縮圖與後備路徑皆指向 `screenshots/1-small.jpg`，`unity-2020.js` 內的 Poki CDN 縮圖 fallback 已一併移除，不再引用 `img.poki-cdn.com`。
+- **關閉 Jekyll 轉換**：根目錄含 `.nojekyll`，避免 GitHub Pages 忽略底線開頭的 Addressables 路徑（`_prefabs` 等）。
+- **載入文案與底色**：`window.config.loadingComments` 提供分段載入提示；頁面底色改為品牌綠 `#00C565`，與 metadata 一致。
 - **Addressables 全數本地化**：資產不在 `.data` 內嵌，而位於 `StreamingAssets/aa/`；已從 `catalog.json` 解析出全部 116 個 bundle 並下載本地（場景、客房、介面、字體、彈窗、音效資料等），`settings.json`／`catalog.json` 亦為本地副本。
 - **原始載入器備份**：原始 Poki `master-loader.js`（會拉遠端 SDK）不進入倉庫，也未被頁面引用。
 
@@ -70,6 +72,12 @@ my-perfect-hotel/
 `Build/*.wasm`（約 23.6 MB）、`Build/*.data`（約 8.5 MB）與 `StreamingAssets/aa/` 下的 Addressables bundle 直接提交進 git，**未使用 Git LFS**：本專案為單機靜態離線成品，版本數有限，直接提交的成本可接受；若日後改版頻繁、倉庫體積明顯膨脹，再評估改用 LFS。
 
 ## 版本記錄
+
+### 1.0.6（2026-11-17）
+
+- 新增 `.nojekyll`，避免 Pages 略過底線開頭的 Addressables 路徑。
+- 移除 `unity-2020.js` 殘留的 Poki CDN 縮圖 fallback，預設縮圖改本地。
+- 補分段載入文案；頁面底色由深藍改品牌綠 `#00C565`。
 
 ### 1.0.5（2026-11-17）
 
