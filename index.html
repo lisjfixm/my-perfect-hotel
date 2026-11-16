@@ -4,7 +4,7 @@
 	<meta charset="utf-8">
 	<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0, minimal-ui, shrink-to-fit=no, viewport-fit=cover">
-	<title>My Perfect Hotel - Poki</title>
+	<title>My Perfect Hotel</title>
 	<script>
 	window.config = {
 		loader: 'unity-2020',
@@ -58,8 +58,303 @@
 		openExternalLink: function () {}
 	};
 	</script>
+	<style>
+/* ===== Debug 面板（頁面層，不進入 Unity 成品） ===== */
+#dbg-toggle {
+	position: fixed;
+	right: 10px;
+	bottom: 10px;
+	z-index: 99999;
+	width: 40px;
+	height: 40px;
+	border: 0;
+	border-radius: 10px;
+	background: rgba(20, 24, 28, 0.85);
+	color: #fff;
+	font: 700 18px/1 Torus, Arial, sans-serif;
+	cursor: pointer;
+}
+#dbg-panel {
+	position: fixed;
+	right: 10px;
+	bottom: 58px;
+	z-index: 99998;
+	width: 260px;
+	max-height: 72vh;
+	overflow-y: auto;
+	background: rgba(18, 22, 26, 0.94);
+	color: #fff;
+	border: 1px solid rgba(255,255,255,0.15);
+	border-radius: 12px;
+	padding: 12px;
+	font: 13px/1.45 Torus, Arial, sans-serif;
+	display: none;
+}
+#dbg-panel.open { display: block; }
+#dbg-panel h2 { font-size: 14px; margin: 0 0 8px; }
+#dbg-panel .dbg-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 8px 0; }
+#dbg-panel label { flex: 1; min-width: 0; }
+#dbg-panel select, #dbg-panel button {
+	font: 13px/1 Torus, Arial, sans-serif;
+	border: 1px solid rgba(255,255,255,0.25);
+	border-radius: 8px;
+	background: #2a3138;
+	color: #fff;
+	padding: 6px 8px;
+}
+#dbg-panel button { cursor: pointer; }
+#dbg-panel button.primary { background: #00C565; border-color: #00C565; color: #04231a; font-weight: 700; }
+#dbg-panel button:disabled { opacity: 0.4; cursor: default; }
+#dbg-status { margin-top: 8px; padding: 8px; border-radius: 8px; background: rgba(255,255,255,0.06); font-size: 12px; }
+#dbg-status div { margin: 3px 0; word-break: break-all; }
+#dbg-log { margin-top: 8px; max-height: 120px; overflow-y: auto; font-size: 11px; color: #9be7c4; }
+#dbg-log div { margin: 2px 0; }
+.dbg-hint { color: #b9c2c9; font-size: 11px; margin: 6px 0 0; }
+	</style>
 </head>
 <body>
 	<script src="unity-2020.js"></script>
+	<script>
+/* Debug panel: read-only status + event-injection auto-play.
+ * 編譯後 Unity WebGL 未暴露內部狀態 API；本面板只能模擬 canvas 上的指標/觸控事件，
+ * 無法讀改金幣、星星、等級或解鎖狀態。 */
+(function () {
+	"use strict";
+
+	var state = {
+		ready: false,
+		auto: false,
+		mode: "random",       // random | patrol | center
+		interval: 1600,
+		timer: null,
+		patrol: null,
+		events: 0,
+		logs: []
+	};
+
+	function $(id) { return document.getElementById(id); }
+
+	function log(msg) {
+		state.logs.unshift(msg);
+		if (state.logs.length > 40) state.logs.pop();
+		var el = $("dbg-log");
+		if (el) el.innerHTML = state.logs.map(function (l) {
+			return "<div>" + l.replace(/[<>&]/g, function (c) {
+				return { "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c];
+			}) + "</div>";
+		}).join("");
+	}
+
+	function canvas() { return document.getElementById("game"); }
+
+	function rectOf() {
+		var c = canvas();
+		if (!c) return null;
+		var r = c.getBoundingClientRect();
+		if (r.width === 0 || r.height === 0) return null;
+		return r;
+	}
+
+	function pointFromNorm(nx, ny) {
+		var r = rectOf();
+		if (!r) return { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+		return { x: r.left + nx * r.width, y: r.top + ny * r.height };
+	}
+
+	function dispatchPointer(type, x, y, opts) {
+		var c = canvas();
+		if (!c) return;
+		opts = opts || {};
+		var r = c.getBoundingClientRect();
+		var cx = x - r.left, cy = y - r.top;
+		var evInit = {
+			clientX: x, clientY: y, pageX: x, pageY: y,
+			screenX: x, screenY: y,
+			offsetX: cx, offsetY: cy,
+			button: 0, buttons: type === "pointerup" || type === "mouseup" ? 0 : 1,
+			pointerId: 1, pointerType: "touch", isPrimary: true,
+			bubbles: true, cancelable: true, view: window
+		};
+		var pe = new PointerEvent(type, evInit);
+		c.dispatchEvent(pe);
+
+		// 同時補 mouse 事件（部分 Unity 輸入路徑走 mouse）
+		var mType = type === "pointerdown" ? "mousedown" : type === "pointerup" ? "mouseup" : "mousemove";
+		c.dispatchEvent(new MouseEvent(mType, evInit));
+
+		// 觸控事件：Unity 讀 changedTouches
+		var tType = type === "pointerdown" ? "touchstart" : type === "pointerup" ? "touchend" : "touchmove";
+		var touch = new Touch({
+			identifier: 1, target: c,
+			clientX: x, clientY: y, pageX: x, pageY: y,
+			screenX: x, screenY: y, radiusX: 1, radiusY: 1, force: 1
+		});
+		c.dispatchEvent(new TouchEvent(tType, {
+			bubbles: true, cancelable: true, view: window,
+			touches: type === "pointerup" || type === "pointerup" ? [] : [touch],
+			targetTouches: type === "pointerup" ? [] : [touch],
+			changedTouches: [touch]
+		}));
+		state.events++;
+	}
+
+	function tapAt(nx, ny) {
+		var p = pointFromNorm(nx, ny);
+		dispatchPointer("pointerdown", p.x, p.y);
+		setTimeout(function () { dispatchPointer("pointerup", p.x, p.y); }, 60);
+	}
+
+	function dragTo(nx, ny) {
+		var p = pointFromNorm(nx, ny);
+		dispatchPointer("pointerdown", p.x, p.y);
+		var steps = 5;
+		for (var i = 1; i <= steps; i++) {
+			(function (k) {
+				setTimeout(function () {
+					dispatchPointer("pointermove", p.x, p.y);
+				}, k * 40);
+			})(i);
+		}
+		setTimeout(function () { dispatchPointer("pointerup", p.x, p.y); }, steps * 40 + 60);
+	}
+
+	function randomPoint() {
+		// 避開頂部 HUD 與底部太邊緣，落在場景主體
+		return { nx: 0.15 + Math.random() * 0.7, ny: 0.25 + Math.random() * 0.6 };
+	}
+
+	function patrolPoint() {
+		if (!state.patrol) {
+			state.patrol = { i: 0, pts: [
+				{ nx: 0.5, ny: 0.5 }, { nx: 0.3, ny: 0.4 }, { nx: 0.7, ny: 0.4 },
+				{ nx: 0.4, ny: 0.7 }, { nx: 0.6, ny: 0.7 }
+			]};
+		}
+		var pt = state.patrol.pts[state.patrol.i % state.patrol.pts.length];
+		state.patrol.i++;
+		return pt;
+	}
+
+	function step() {
+		if (!state.ready) return;
+		var pt;
+		if (state.mode === "center") pt = { nx: 0.5, ny: 0.5 };
+		else if (state.mode === "patrol") pt = patrolPoint();
+		else pt = randomPoint();
+
+		if (state.mode === "patrol") dragTo(pt.nx, pt.ny);
+		else tapAt(pt.nx, pt.ny);
+
+		log("自動操作 #" + state.events + " → (" + pt.nx.toFixed(2) + ", " + pt.ny.toFixed(2) + ") [" + state.mode + "]");
+		refreshStatus();
+	}
+
+	function startAuto() {
+		if (state.auto) return;
+		if (!state.ready) { log("遊戲尚未載入完成，無法開始"); return; }
+		state.auto = true;
+		state.timer = setInterval(step, state.interval);
+		log("自動游玩已開啟（" + state.mode + "，間隔 " + state.interval + "ms）");
+		refreshStatus();
+	}
+
+	function stopAuto() {
+		state.auto = false;
+		if (state.timer) { clearInterval(state.timer); state.timer = null; }
+		log("自動游玩已停止");
+		refreshStatus();
+	}
+
+	function refreshStatus() {
+		var el = $("dbg-status");
+		if (!el) return;
+		var g = window.unityGame;
+		var bridge = window.pokiBridge || "(尚未建立)";
+		var cfg = window.config || {};
+		el.innerHTML =
+			"<div>載入狀態：" + (state.ready ? "已就緒" : "載入中") + "</div>" +
+			"<div>版本：" + ((cfg.metadata && cfg.metadata.product_version) || "—") + "</div>" +
+			"<div>產品：" + ((cfg.metadata && cfg.metadata.product_name) || "—") + "</div>" +
+			"<div>語言 stub：" + (typeof PokiSDK !== "undefined" ? PokiSDK.getLanguage() : "—") + "</div>" +
+			"<div>橋接物件：" + bridge + "</div>" +
+			"<div>注入事件：" + state.events + "</div>" +
+			"<div>自動游玩：" + (state.auto ? "開啟" : "關閉") + "</div>";
+	}
+
+	function pollReady() {
+		var g = window.unityGame;
+		if (g && !state.ready) {
+			state.ready = true;
+			log("Unity 實例就緒，可操作");
+			refreshStatus();
+		}
+		if (!state.ready) refreshStatus();
+	}
+
+	function init() {
+		var panel = document.createElement("div");
+		panel.id = "dbg-panel";
+		panel.innerHTML =
+			"<h2>Debug 菜單</h2>" +
+			"<div class=\"dbg-row\"><label>自動游玩模式</label>" +
+			"<select id=\"dbg-mode\">" +
+			"<option value=\"random\">隨機點擊</option>" +
+			"<option value=\"patrol\">拖曳巡邏</option>" +
+			"<option value=\"center\">重複點中央</option>" +
+			"</select></div>" +
+			"<div class=\"dbg-row\"><label>操作間隔 (ms)</label>" +
+			"<select id=\"dbg-interval\">" +
+			"<option value=\"1200\">1200</option>" +
+			"<option value=\"1600\" selected>1600</option>" +
+			"<option value=\"2400\">2400</option>" +
+			"</select></div>" +
+			"<div class=\"dbg-row\">" +
+			"<button id=\"dbg-start\" class=\"primary\">開始自動</button>" +
+			"<button id=\"dbg-stop\">停止</button>" +
+			"<button id=\"dbg-tap\">點中央</button>" +
+			"</div>" +
+			"<div id=\"dbg-status\"></div>" +
+			"<div id=\"dbg-log\"></div>" +
+			"<p class=\"dbg-hint\">自動游玩為頁面層事件注入，模擬觸控/點擊；無法讀改金幣、星星或解鎖狀態。</p>";
+		document.body.appendChild(panel);
+
+		var toggle = document.createElement("button");
+		toggle.id = "dbg-toggle";
+		toggle.textContent = "D";
+		toggle.title = "Debug 菜單";
+		document.body.appendChild(toggle);
+
+		toggle.addEventListener("click", function () {
+			panel.classList.toggle("open");
+		});
+		$("dbg-mode").addEventListener("change", function (e) {
+			state.mode = e.target.value;
+			log("模式切換：" + state.mode);
+		});
+		$("dbg-interval").addEventListener("change", function (e) {
+			state.interval = parseInt(e.target.value, 10) || 1600;
+			if (state.auto) { stopAuto(); startAuto(); }
+		});
+		$("dbg-start").addEventListener("click", startAuto);
+		$("dbg-stop").addEventListener("click", stopAuto);
+		$("dbg-tap").addEventListener("click", function () {
+			if (!state.ready) { log("遊戲尚未載入完成"); return; }
+			tapAt(0.5, 0.5);
+			log("手動點擊中央");
+			refreshStatus();
+		});
+
+		// 輪詢 Unity 實例就緒狀態，更新面板
+		setInterval(pollReady, 500);
+		refreshStatus();
+	}
+
+	if (document.readyState === "loading") {
+		document.addEventListener("DOMContentLoaded", init);
+	} else {
+		init();
+	}
+})();
+	</script>
 </body>
 </html>
