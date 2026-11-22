@@ -120,8 +120,8 @@
 /* Debug panel: status + event-injection auto-play + Unity SendMessage 橋接作弊.
  * 經由 unityGame.SendMessage(GameObject, 方法, 參數) 呼叫成品內部方法：
  *  - Hotel.UnlockAll：解鎖全部房間/人員（已驗證）
- *  - MoneyCounter.ForceSetValue(n)：設定 HUD 金幣顯示值（已驗證；真實可消費餘額待教學結束後驗證）
- * 星星無 SendMessage 直設入口，尚需 heap 寫入。 */
+ *  - heap 回溯 GameSession→GameData→Wallet 字典，直寫軟幣餘額（f32），再 ForceSetValue 同步 HUD。
+ * 星星無 SendMessage 直設入口，尚需 heap 寫入 HotelData.StartsCount。 */
 (function () {
 	"use strict";
 
@@ -325,7 +325,7 @@
 			"</div>" +
 			"<div id=\"dbg-status\"></div>" +
 			"<div id=\"dbg-log\"></div>" +
-			"<p class=\"dbg-hint\">加金幣為設定 HUD 顯示值（ForceSetValue）；全解鎖為內部 UnlockAll。星星暫無橋接入口，需記憶體寫入。</p>";
+			"<p class=\"dbg-hint\">加金幣直寫真 wallet 並同步 HUD；全解鎖為內部 UnlockAll。星星暫無入口，需記憶體寫入。</p>";
 		document.body.appendChild(panel);
 
 		var toggle = document.createElement("button");
@@ -368,6 +368,58 @@
 			}
 		}
 
+		// 執行期 heap 回溯：GameSession → GameData(+20) → Wallet(+92) → Dictionary(+8) → Entry[]；
+		// 回傳軟幣（key=0）餘額欄位位址，找不到回傳 -1。欄位偏移依本成品 build 固定。
+		function locateCoinSlot(M) {
+			try {
+				var H = M.HEAPU32, B = M.HEAPU8;
+				function u32(a) { return H[a / 4] >>> 0; }
+				function cstr(a) {
+					if (!a || a < 100) return null;
+					var e = a; while (e < B.length && B[e] !== 0) e++;
+					if (e - a > 48) return null;
+					return String.fromCharCode.apply(null, Array.from(B.subarray(a, e)));
+				}
+				function klassName(k) { if (!k || k < 1000) return null; return cstr(u32(k + 8)); }
+				function findStr(s) {
+					var t = [].map.call(s, function (ch) { return ch.charCodeAt(0); });
+					for (var i = 0; i <= B.length - t.length; i++) {
+						var ok = true;
+						for (var k = 0; k < t.length; k++) { if (B[i + k] !== t[k]) { ok = false; break; } }
+						if (ok && (i === 0 || B[i - 1] === 0) && B[i + t.length] === 0) return i;
+					}
+					return -1;
+				}
+				function klassByName(n) {
+					var S = findStr(n); if (S < 0) return null;
+					for (var i = 0; i < H.length; i++) {
+						if (H[i] === S) {
+							var base = i * 4 - 8;
+							if (u32(base + 32) === base && u32(base + 36) === base) return base;
+						}
+					}
+					return null;
+				}
+				function instances(k) {
+					var o = [];
+					for (var i = 0; i < H.length; i++) {
+						if (H[i] === k) { var x = i * 4; if (u32(x + 4) === 0) o.push(x); }
+					}
+					return o;
+				}
+				var kGS = klassByName("GameSession"); if (!kGS) return -1;
+				var gs = instances(kGS).find(function (o) { return klassName(u32(u32(o + 20))) === "GameData"; });
+				if (!gs) return -1;
+				var gd = u32(gs + 20), wallet = u32(gd + 92), dic = u32(wallet + 8);
+				var ent = u32(dic + 12), elen = u32(ent + 12);
+				for (var k = 0; k < elen; k++) {
+					var b = ent + 16 + k * 16;
+					if (u32(b + 8) === 0) return b + 12;
+				}
+				return -1;
+			} catch (e) { return -1; }
+		}
+
 		$("dbg-unlock").addEventListener("click", function () {
 			if (!state.ready) { log("遊戲尚未載入完成"); return; }
 			if (cheatSend("Hotel", "UnlockAll")) log("已呼叫 Hotel.UnlockAll（解鎖全部）");
@@ -376,12 +428,18 @@
 
 		$("dbg-coin").addEventListener("click", function () {
 			if (!state.ready) { log("遊戲尚未載入完成"); return; }
-			var raw = prompt("設定金幣顯示值：", "100000");
+			var raw = prompt("設定金幣數值：", "100000");
 			if (raw === null) { log("已取消"); return; }
 			var v = parseInt(raw, 10);
 			if (isNaN(v)) { log("輸入不是有效數字"); return; }
-			if (cheatSend("MoneyCounter", "ForceSetValue", v))
-				log("已要求設定金幣 = " + v + "（HUD 顯示值；真實可消費餘額待驗證）");
+			var wrote = false;
+			var M = window.unityGame && window.unityGame.Module;
+			if (M) {
+				var slot = locateCoinSlot(M);
+				if (slot >= 0) { M.HEAPF32[slot / 4] = v; wrote = true; }
+			}
+			cheatSend("MoneyCounter", "ForceSetValue", v);
+			log((wrote ? "真 wallet 已寫入" : "真 wallet 定位失敗，僅同步 HUD") + "：金幣 = " + v);
 			refreshStatus();
 		});
 
