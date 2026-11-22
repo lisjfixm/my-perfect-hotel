@@ -117,9 +117,11 @@
 <body>
 	<script src="unity-2020.js"></script>
 	<script>
-/* Debug panel: read-only status + event-injection auto-play.
- * 編譯後 Unity WebGL 未暴露內部狀態 API；本面板只能模擬 canvas 上的指標/觸控事件，
- * 無法讀改金幣、星星、等級或解鎖狀態。 */
+/* Debug panel: status + event-injection auto-play + Unity SendMessage 橋接作弊.
+ * 經由 unityGame.SendMessage(GameObject, 方法, 參數) 呼叫成品內部方法：
+ *  - Hotel.UnlockAll：解鎖全部房間/人員（已驗證）
+ *  - MoneyCounter.ForceSetValue(n)：設定 HUD 金幣顯示值（已驗證；真實可消費餘額待教學結束後驗證）
+ * 星星無 SendMessage 直設入口，尚需 heap 寫入。 */
 (function () {
 	"use strict";
 
@@ -315,7 +317,7 @@
 			"<button id=\"dbg-stop\">停止</button>" +
 			"<button id=\"dbg-tap\">點中央</button>" +
 			"</div>" +
-			"<div class=\"dbg-row dbg-cheat-title\"><label>作弊（占位，離線成品不支援）</label></div>" +
+			"<div class=\"dbg-row dbg-cheat-title\"><label>作弊（Unity SendMessage 橋接）</label></div>" +
 			"<div class=\"dbg-row\">" +
 			"<button id=\"dbg-coin\">加金幣</button>" +
 			"<button id=\"dbg-star\">加星星</button>" +
@@ -323,7 +325,7 @@
 			"</div>" +
 			"<div id=\"dbg-status\"></div>" +
 			"<div id=\"dbg-log\"></div>" +
-			"<p class=\"dbg-hint\">自動游玩為頁面層事件注入，模擬觸控/點擊；無法讀改金幣、星星或解鎖狀態。</p>";
+			"<p class=\"dbg-hint\">加金幣為設定 HUD 顯示值（ForceSetValue）；全解鎖為內部 UnlockAll。星星暫無橋接入口，需記憶體寫入。</p>";
 		document.body.appendChild(panel);
 
 		var toggle = document.createElement("button");
@@ -352,12 +354,39 @@
 			refreshStatus();
 		});
 
-		// 占位作弊按鈕：編譯後 Unity WebGL 未暴露內部狀態 API，無法讀改金幣/星星/解鎖
-		var cheatMsg = "離線編譯成品不支援：金幣、星星與解鎖狀態封裝在 Unity 內部，頁面層無法寫入。";
-		[["dbg-coin", "加金幣"], ["dbg-star", "加星星"], ["dbg-unlock", "全解鎖"]].forEach(function (pair) {
-			$(pair[0]).addEventListener("click", function () {
-				log(pair[1] + "：" + cheatMsg);
-			});
+		// Unity SendMessage 橋接：第三參省略走無參變體；number 走 SendMessageFloat；string 走 SendMessageString
+		function cheatSend(go, method, param) {
+			var g = window.unityGame;
+			if (!g || typeof g.SendMessage !== "function") { log("Unity 實例尚未就緒"); return false; }
+			try {
+				if (param === undefined) g.SendMessage(go, method);
+				else g.SendMessage(go, method, param);
+				return true;
+			} catch (e) {
+				log("SendMessage 失敗：" + (e && e.message ? e.message : e));
+				return false;
+			}
+		}
+
+		$("dbg-unlock").addEventListener("click", function () {
+			if (!state.ready) { log("遊戲尚未載入完成"); return; }
+			if (cheatSend("Hotel", "UnlockAll")) log("已呼叫 Hotel.UnlockAll（解鎖全部）");
+			refreshStatus();
+		});
+
+		$("dbg-coin").addEventListener("click", function () {
+			if (!state.ready) { log("遊戲尚未載入完成"); return; }
+			var raw = prompt("設定金幣顯示值：", "100000");
+			if (raw === null) { log("已取消"); return; }
+			var v = parseInt(raw, 10);
+			if (isNaN(v)) { log("輸入不是有效數字"); return; }
+			if (cheatSend("MoneyCounter", "ForceSetValue", v))
+				log("已要求設定金幣 = " + v + "（HUD 顯示值；真實可消費餘額待驗證）");
+			refreshStatus();
+		});
+
+		$("dbg-star").addEventListener("click", function () {
+			log("加星星：尚無 SendMessage 入口，需 heap 寫入 HotelData.StartsCount 後刷新 StarsBar。");
 		});
 
 		// 輪詢 Unity 實例就緒狀態，更新面板
