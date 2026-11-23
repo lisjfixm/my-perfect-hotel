@@ -111,17 +111,20 @@
 #dbg-log { margin-top: 8px; max-height: 120px; overflow-y: auto; font-size: 11px; color: #9be7c4; }
 #dbg-log div { margin: 2px 0; }
 .dbg-hint { color: #b9c2c9; font-size: 11px; margin: 6px 0 0; }
+.dbg-warn { color: #ffb4b4; background: rgba(255,80,80,0.12); border: 1px solid rgba(255,120,120,0.3); border-radius: 8px; padding: 7px; font-size: 11px; margin: 6px 0; }
 .dbg-cheat-title label { color: #ffd200; font-weight: 700; }
 	</style>
 </head>
 <body>
 	<script src="unity-2020.js"></script>
 	<script>
-/* Debug panel: status + event-injection auto-play + Unity SendMessage 橋接作弊.
+/* Debug panel: status + Unity SendMessage 橋接作弊.
  * 經由 unityGame.SendMessage(GameObject, 方法, 參數) 呼叫成品內部方法：
  *  - Hotel.UnlockAll：解鎖全部房間/人員（已驗證）
  *  - heap 回溯 GameSession→GameData→Wallet 字典，直寫軟幣餘額（f32），再 ForceSetValue 同步 HUD。
- * 星星無 SendMessage 直設入口，尚需 heap 寫入 HotelData.StartsCount。 */
+ * 星星無 SendMessage 直設入口，尚需 heap 寫入 HotelData.StartsCount。
+ * 註：頁面層合成 Pointer/Mouse/Touch 事件經實測不被 Unity 新輸入系統接收，
+ * 無法驅動角色移動或觸發 UI 按鈕，模擬操作區已停用。 */
 (function () {
 	"use strict";
 
@@ -300,22 +303,23 @@
 		panel.id = "dbg-panel";
 		panel.innerHTML =
 			"<h2>Debug 菜單</h2>" +
+			"<div class=\"dbg-warn\">模擬操作（實測本成品無效）：這段只在畫布上發合成點擊／拖曳，看不懂地圖、也不知道哪裡能點或升級。實測 Unity 新輸入系統不接收這些合成事件，服務生不會移動、按鈕也不會被觸發，故停用。</div>" +
 			"<div class=\"dbg-row\"><label>自動游玩模式</label>" +
-			"<select id=\"dbg-mode\">" +
+			"<select id=\"dbg-mode\" disabled>" +
 			"<option value=\"random\">隨機點擊</option>" +
 			"<option value=\"patrol\">拖曳巡邏</option>" +
 			"<option value=\"center\">重複點中央</option>" +
 			"</select></div>" +
 			"<div class=\"dbg-row\"><label>操作間隔 (ms)</label>" +
-			"<select id=\"dbg-interval\">" +
+			"<select id=\"dbg-interval\" disabled>" +
 			"<option value=\"1200\">1200</option>" +
 			"<option value=\"1600\" selected>1600</option>" +
 			"<option value=\"2400\">2400</option>" +
 			"</select></div>" +
 			"<div class=\"dbg-row\">" +
-			"<button id=\"dbg-start\" class=\"primary\">開始自動</button>" +
-			"<button id=\"dbg-stop\">停止</button>" +
-			"<button id=\"dbg-tap\">點中央</button>" +
+			"<button id=\"dbg-start\" class=\"primary\" disabled>開始自動</button>" +
+			"<button id=\"dbg-stop\" disabled>停止</button>" +
+			"<button id=\"dbg-tap\" disabled>點中央</button>" +
 			"</div>" +
 			"<div class=\"dbg-row dbg-cheat-title\"><label>作弊（Unity SendMessage 橋接）</label></div>" +
 			"<div class=\"dbg-row\">" +
@@ -325,7 +329,7 @@
 			"</div>" +
 			"<div id=\"dbg-status\"></div>" +
 			"<div id=\"dbg-log\"></div>" +
-			"<p class=\"dbg-hint\">加金幣直寫真 wallet 並同步 HUD；全解鎖為內部 UnlockAll。星星暫無入口，需記憶體寫入。</p>";
+			"<p class=\"dbg-hint\">已驗證：全解鎖（內部 UnlockAll）、加金幣（直寫真 wallet 並同步 HUD）。模擬點擊／拖曳在本成品不被 Unity 接收；星星暫無入口，需記憶體寫入。</p>";
 		document.body.appendChild(panel);
 
 		var toggle = document.createElement("button");
